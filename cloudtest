@@ -1,0 +1,76 @@
+!pip install finlab_crypto==0.1.17 > log.txt
+!pip install talib-binary==0.4.19 > log.txt
+
+mode = 'TEST'
+
+from finlab_crypto.strategy import Strategy
+from finlab_crypto.indicators import trends
+
+@Strategy(name='sma', n1=20, n2=40)
+def trend_strategy(ohlcv):
+  name = trend_strategy.name
+  n1 = trend_strategy.n1
+  n2 = trend_strategy.n2
+
+  filtered1 = trends[name](ohlcv.close, n1)
+  filtered2 = trends[name](ohlcv.close, n2)
+
+  entries = (filtered1 > filtered2) & (filtered1.shift() < filtered2.shift())
+  exit = (filtered1 < filtered2) & (filtered1.shift() > filtered2.shift())
+
+  figures = {
+      'overlaps': {
+          'trend1': filtered1,
+          'trend2': filtered2,
+      }
+  }
+  return entries, exit, figures
+
+
+from finlab_crypto.online import TradingMethod
+
+tm1 = TradingMethod(
+    symbols=['XRPBTC', 'ADABTC', 'LINKBTC', 'ETHBTC', 'VETBTC'],
+    freq='4h',
+    lookback=1000,
+    strategy=trend_strategy,
+    variables={'name': 'sma', 'n1': 30, 'n2': 130},
+    weight_btc=0.01,
+    name='2020-12-16',
+)
+
+tm2 = TradingMethod(
+    symbols=['BTCUSDT'],
+    freq='4h',
+    lookback=1000,
+    strategy=trend_strategy,
+    variables={'name': 'hullma', 'n1': 70, 'n2': 108},
+    weight_btc=0.05,
+    name='2020-12-16',
+)
+
+from finlab_crypto.online import TradingPortfolio, render_html
+
+
+def rebalance_position(mode):
+  key = ''
+  secret = ''
+  tp = TradingPortfolio(key, secret)
+  tp.register(tm1)
+  tp.register(tm2)
+  tp.register_margin('USDT', 1000)
+
+
+  ohlcvs = tp.get_ohlcvs()
+
+  signals = tp.get_latest_signals(ohlcvs)
+  position, position_btc, new_orders = tp.calculate_position_size(signals)
+  order_results = tp.execute_orders(new_orders, mode=mode)
+
+  html = render_html(signals, position, position_btc, new_orders, order_results)
+  return html
+
+
+html = rebalance_position(mode)
+from IPython.core.display import HTML
+HTML(html)
